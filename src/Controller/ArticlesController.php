@@ -1,211 +1,166 @@
 <?php
-// ============================================================
-//  CONTROLLER dos Artigos
-//
-//  O Controller é responsável por:
-//    - Receber os pedidos HTTP do browser
-//    - Comunicar com o Model para aceder aos dados
-//    - Selecionar a View correta para apresentar ao utilizador
-//
-//  Convenções CakePHP:
-//    - Nome no plural + "Controller": ArticlesController
-//    - Ficheiro: src/Controller/ArticlesController.php
-//    - Cada método público é uma "ação" acessível por URL
-//
-//  Ações disponíveis:
-//    index()  → listar todos os artigos
-//    view()   → ver um artigo + comentários
-//    add()    → criar novo artigo (requer login)
-//    edit()   → editar artigo existente (requer login)
-//    delete() → eliminar artigo (requer login)
-//    search() → pesquisar artigos por palavra-chave
-// ============================================================
+declare(strict_types=1);
 namespace App\Controller;
-
-use App\Controller\AppController;
 
 class ArticlesController extends AppController
 {
-    // ----------------------------------------------------------
-    // index()
-    // Lista todos os artigos ordenados do mais recente para o mais antigo.
-    // contain() carrega dados relacionados (utilizador e categoria)
-    // para evitar múltiplas consultas à BD (eager loading).
-    // Acessível a todos os utilizadores (sem login).
-    // URL: /articles
-    // ----------------------------------------------------------
+    protected array $paginate = [
+        'limit' => 5,
+        'order' => ['Articles.created' => 'DESC'],
+    ];
+
     public function index()
     {
-        // Busca todos os artigos com os dados do utilizador e categoria
-        $articles = $this->Articles->find('all')
-            ->contain(['Users', 'Categories']) // Carrega relações
-            ->order(['Articles.created' => 'DESC']); // Mais recentes primeiro
+        $query = $this->Articles->find()
+            ->contain(['Users', 'Categories'])
+            ->orderBy(['Articles.created' => 'DESC']);
 
-        // Passa os dados para a view Articles/index.php
-        $this->set('articles', $articles);
-
-        // Passa o estado de login para mostrar/esconder botões de edição
+        $articles = $this->paginate($query);
+        $this->set(compact('articles'));
         $this->set('loggedIn', $this->isLoggedIn());
     }
 
-    // ----------------------------------------------------------
-    // view($id)
-    // Mostra um artigo específico com todos os seus comentários.
-    // Recebe o $id do artigo como parâmetro na URL.
-    // Também trata o formulário de adição de comentários (POST).
-    // URL: /articles/view/1
-    // ----------------------------------------------------------
-    public function view($id = null)
+    public function view($id)
     {
-        // Carrega o artigo pelo id, incluindo utilizador, categoria e comentários
-        $article = $this->Articles->get($id, [
-            'contain' => ['Users', 'Categories', 'Comments'],
-        ]);
-
-        // Cria uma entidade vazia para o formulário de novo comentário
+        $article = $this->Articles->get($id, contain: ['Users', 'Categories', 'Comments']);
         $comment = $this->Articles->Comments->newEmptyEntity();
 
-        // Verifica se o formulário de comentário foi submetido (método POST)
         if ($this->request->is('post')) {
-
-            // Preenche a entidade com os dados do formulário
-            // Adiciona também o article_id automaticamente
-            $comment = $this->Articles->Comments->patchEntity(
-                $comment,
-                $this->request->getData() + ['article_id' => $id]
-            );
-
-            // Tenta guardar o comentário na BD
+            $data = $this->request->getData();
+            $data['article_id'] = $id;
+            $comment = $this->Articles->Comments->patchEntity($comment, $data);
             if ($this->Articles->Comments->save($comment)) {
-                $this->Flash->success('Comentário publicado com sucesso!');
-                // Redireciona para a mesma página para evitar resubmissão do formulário
+                $this->Flash->success('Comentario publicado!');
                 return $this->redirect(['action' => 'view', $id]);
             }
-            $this->Flash->error('Não foi possível publicar o comentário.');
+            $this->Flash->error('Verifique os campos.');
         }
 
         $this->set('loggedIn', $this->isLoggedIn());
         $this->set(compact('article', 'comment'));
     }
 
-    // ----------------------------------------------------------
-    // add()
-    // Apresenta o formulário para criar um novo artigo (GET)
-    // e processa o formulário quando submetido (POST).
-    // Requer login — chama requireLogin() para verificar.
-    // URL: /articles/add
-    // ----------------------------------------------------------
     public function add()
     {
-        // Verifica se o utilizador está autenticado
         $this->requireLogin();
-
-        // Cria uma entidade vazia para o formulário
         $article = $this->Articles->newEmptyEntity();
 
-        // Verifica se o formulário foi submetido
         if ($this->request->is('post')) {
+            $data = $this->request->getData();
 
-            // Preenche a entidade com os dados do formulário
-            $article = $this->Articles->patchEntity($article, $this->request->getData());
+            // Guardar imagem na base de dados como BLOB
+            $imageFile = $this->request->getUploadedFile('image_upload');
+            if ($imageFile && $imageFile->getError() === UPLOAD_ERR_OK) {
+                $ext = strtolower(pathinfo($imageFile->getClientFilename(), PATHINFO_EXTENSION));
+                $allowed = ['jpg','jpeg','png','gif','webp'];
+                if (in_array($ext, $allowed)) {
+                    $data['image']      = $imageFile->getStream()->getContents();
+                    $data['image_type'] = $imageFile->getClientMediaType();
+                }
+            }
 
-            // Obtém o utilizador da sessão e associa ao artigo
+            // Garantir que category_id e user_id estao presentes
             $user = $this->request->getSession()->read('Auth.User');
-            $article->user_id = $user['id'];
+            $data['user_id'] = $user['id'];
 
-            // Tenta guardar na BD (as validações são verificadas aqui)
+            $article = $this->Articles->patchEntity($article, $data);
+
             if ($this->Articles->save($article)) {
-                $this->Flash->success('Artigo publicado com sucesso!');
+                $this->Flash->success('Artigo publicado!');
                 return $this->redirect(['action' => 'index']);
             }
-            $this->Flash->error('Não foi possível publicar o artigo. Verifique os campos.');
+            $this->Flash->error('Nao foi possivel publicar. Verifique todos os campos.');
         }
 
-        // Carrega a lista de categorias para o dropdown do formulário
-        $categories = $this->Articles->Categories->find('list')->order(['name' => 'ASC']);
+        $categories = $this->Articles->Categories->find('list')->orderBy(['name' => 'ASC']);
         $this->set(compact('article', 'categories'));
     }
 
-    // ----------------------------------------------------------
-    // edit($id)
-    // Apresenta o formulário de edição de um artigo (GET)
-    // e guarda as alterações quando submetido (PUT/POST).
-    // Requer login.
-    // URL: /articles/edit/1
-    // ----------------------------------------------------------
-    public function edit($id = null)
+    public function edit($id)
     {
-        // Verifica autenticação
         $this->requireLogin();
-
-        // Carrega o artigo pelo id (lança exceção se não existir)
         $article = $this->Articles->get($id);
+        $user = $this->request->getSession()->read('Auth.User');
+        
+        // Verificar se o usuário é o dono do artigo
+        if ($article->user_id !== $user['id']) {
+            throw new \Cake\Http\Exception\ForbiddenException('Você não pode editar este artigo.');
+        }
 
-        // Processa o formulário se foi submetido via POST ou PUT
         if ($this->request->is(['post', 'put'])) {
+            $data = $this->request->getData();
 
-            // Atualiza a entidade com os novos dados
-            $article = $this->Articles->patchEntity($article, $this->request->getData());
+            // Guardar nova imagem na BD se foi enviada
+            $imageFile = $this->request->getUploadedFile('image_upload');
+            if ($imageFile && $imageFile->getError() === UPLOAD_ERR_OK) {
+                $ext = strtolower(pathinfo($imageFile->getClientFilename(), PATHINFO_EXTENSION));
+                if (in_array($ext, ['jpg','jpeg','png','gif','webp'])) {
+                    $data['image']      = $imageFile->getStream()->getContents();
+                    $data['image_type'] = $imageFile->getClientMediaType();
+                }
+            }
 
+            $article = $this->Articles->patchEntity($article, $data);
             if ($this->Articles->save($article)) {
-                $this->Flash->success('Artigo atualizado com sucesso!');
+                $this->Flash->success('Artigo atualizado!');
                 return $this->redirect(['action' => 'index']);
             }
-            $this->Flash->error('Não foi possível atualizar o artigo.');
+            $this->Flash->error('Nao foi possivel atualizar.');
         }
 
-        // Carrega categorias para o dropdown
-        $categories = $this->Articles->Categories->find('list')->order(['name' => 'ASC']);
+        $categories = $this->Articles->Categories->find('list')->orderBy(['name' => 'ASC']);
         $this->set(compact('article', 'categories'));
     }
 
-    // ----------------------------------------------------------
-    // delete($id)
-    // Elimina um artigo da base de dados.
-    // Só aceita pedidos POST ou DELETE (segurança).
-    // Os comentários associados são eliminados automaticamente
-    // graças ao 'dependent' => true no Model.
-    // Requer login.
-    // URL: /articles/delete/1 (via formulário POST)
-    // ----------------------------------------------------------
-    public function delete($id = null)
+    public function delete($id)
     {
-        // Verifica autenticação
         $this->requireLogin();
-
-        // Só permite métodos POST ou DELETE (evita eliminação acidental por URL)
         $this->request->allowMethod(['post', 'delete']);
-
-        // Carrega o artigo a eliminar
         $article = $this->Articles->get($id);
-
-        // Tenta eliminar o artigo (e os comentários associados)
-        if ($this->Articles->delete($article)) {
-            $this->Flash->success('Artigo eliminado com sucesso!');
-        } else {
-            $this->Flash->error('Não foi possível eliminar o artigo.');
+        $user = $this->request->getSession()->read('Auth.User');
+        
+        // Verificar se o usuário é o dono do artigo
+        if ($article->user_id !== $user['id']) {
+            throw new \Cake\Http\Exception\ForbiddenException('Você não pode deletar este artigo.');
         }
 
-        // Redireciona para a lista de artigos
+        if ($this->Articles->delete($article)) {
+            $this->Flash->success('Artigo eliminado!');
+        } else {
+            $this->Flash->error('Nao foi possivel eliminar.');
+        }
         return $this->redirect(['action' => 'index']);
     }
 
-    // ----------------------------------------------------------
-    // search()
-    // Pesquisa artigos por palavra-chave no título ou conteúdo.
-    // Recebe o parâmetro 'q' via GET (query string).
-    // URL: /articles/search?q=cakephp
-    // ----------------------------------------------------------
+    // Serve a imagem do artigo diretamente da BD
+    public function image($id)
+    {
+        $article = $this->Articles->get($id);
+        if (empty($article->image)) {
+            throw new \Cake\Http\Exception\NotFoundException();
+        }
+        $response = $this->response
+            ->withType($article->image_type ?? 'image/jpeg')
+            ->withStringBody($article->image);
+        return $response;
+    }
+
     public function search()
     {
-        // Obtém a palavra-chave da query string (?q=...)
-        $keyword  = $this->request->getQuery('q', '');
+        $keyword = trim((string)$this->request->getQuery('q', ''));
         $articles = [];
 
-        // Só pesquisa se a palavra-chave não estiver vazia
-        if (!empty($keyword)) {
-            // Chama o método search() definido no ArticlesTable
-            $articles = $this->Articles->search($keyword);
+        if ($keyword !== '') {
+            $query = $this->Articles->find()
+                ->contain(['Users', 'Categories'])
+                ->where([
+                    'OR' => [
+                        'Articles.title LIKE' => '%' . $keyword . '%',
+                        'Articles.body LIKE'  => '%' . $keyword . '%',
+                    ],
+                ])
+                ->orderBy(['Articles.created' => 'DESC']);
+            $articles = $this->paginate($query);
         }
 
         $this->set('loggedIn', $this->isLoggedIn());

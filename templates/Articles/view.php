@@ -1,54 +1,43 @@
-<!-- templates/Articles/view.php -->
 <article class="article-full">
-
     <span class="category-badge"><?= h($article->category->name) ?></span>
-
     <h1><?= h($article->title) ?></h1>
-
     <div class="article-meta-full">
         <span>Por <strong><?= h($article->user->username) ?></strong></span>
-        <span><?= $article->created->format('d/m/Y \à\s H:i') ?></span>
+        <span><?= $article->created->format('d/m/Y') ?></span>
     </div>
-
-    <div class="article-body">
-        <?= nl2br(h($article->body)) ?>
-    </div>
-
+    <?php if (!empty($article->image)): ?>
+        <div class="article-full-image">
+            <img src="<?= $this->Url->build(['controller' => 'Articles', 'action' => 'image', $article->id]) ?>"
+                 alt="<?= h($article->title) ?>">
+        </div>
+    <?php endif; ?>
+    <div class="article-body"><?= nl2br(h($article->body)) ?></div>
     <?php if ($loggedIn): ?>
-        <div class="article-actions" style="margin-top:1.5rem; padding-top:1rem; border-top:1px solid #e5e7eb;">
+        <div class="article-actions">
             <?= $this->Html->link('Editar', ['action' => 'edit', $article->id]) ?>
-            <?= $this->Form->postLink('Eliminar',
-                ['action' => 'delete', $article->id],
-                ['confirm' => 'Tem a certeza?']
-            ) ?>
+            <?= $this->Form->postLink('Eliminar', ['action' => 'delete', $article->id], ['confirm' => 'Tem a certeza?']) ?>
         </div>
     <?php endif; ?>
 </article>
-
 <hr>
-
-<!-- COMENTÁRIOS -->
 <section class="comments">
-    <h2>Comentários (<?= count($article->comments) ?>)</h2>
-
+    <h2>Comentarios (<?= count($article->comments) ?>)</h2>
     <?php if (empty($article->comments)): ?>
-        <p style="color:#6b7280; font-style:italic;">Ainda não há comentários. Seja o primeiro!</p>
+        <p class="empty">Seja o primeiro a comentar!</p>
     <?php else: ?>
-        <?php foreach ($article->comments as $comment): ?>
+        <?php foreach ($article->comments as $c): ?>
             <div class="comment-card">
-                <strong><?= h($comment->author) ?></strong>
-                <span class="comment-date"><?= $comment->created->format('d/m/Y') ?></span>
-                <p><?= nl2br(h($comment->body)) ?></p>
+                <strong><?= h($c->author) ?></strong>
+                <span class="comment-date"><?= $c->created->format('d/m/Y') ?></span>
+                <p><?= nl2br(h($c->body)) ?></p>
             </div>
         <?php endforeach; ?>
     <?php endif; ?>
-
-    <h3>Deixar um comentário</h3>
-    <?= $this->Form->create($comment) ?>
-        <?= $this->Form->control('author', ['label' => 'O seu nome']) ?>
-        <?= $this->Form->control('body',   ['label' => 'Comentário', 'rows' => 4]) ?>
-        <?= $this->Form->button('Publicar comentário') ?>
+    <h3>Deixar um comentario</h3>
+    <?= $this->Form->create($comment, ['url' => ['action' => 'view', $article->id]]) ?>
+        <?= $this->Form->control('author', ['label' => 'O seu nome', 'placeholder' => 'Nome...']) ?>
+        <?= $this->Form->control('body',   ['label' => 'Comentario', 'rows' => 4]) ?>
+        <?= $this->Form->button('Publicar') ?>
     <?= $this->Form->end() ?>
 </section>
-
-<?= $this->Html->link('← Voltar aos artigos', ['action' => 'index'], ['class' => 'back-link']) ?>
+<?= $this->Html->link('&larr; Voltar', ['action' => 'index'], ['escape' => false, 'class' => 'back-link']) ?>
